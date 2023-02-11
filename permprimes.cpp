@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
-#include <pthread.h>
+#include <thread>
 #include <vector>
 
 struct Info
@@ -19,6 +19,8 @@ std::atomic<uint64_t> totps;
 static uint64_t       max_value = 7780;
 static uint64_t       min_value = 1;
 static int            verbosity;
+
+std::unique_ptr<bool[]> prime_table;
 
 bool is_prime(uint64_t p)
 {
@@ -81,7 +83,7 @@ void check_for_prime_permutes(bool prime, uint64_t p)
     static int most_primes;
     for (auto n : numbers)
     {
-	if (is_prime(n))
+	if (prime_table[n])
 	{
 	    primes++;
 	    if (verbosity > 2)
@@ -104,17 +106,17 @@ std::ostream& operator<<(std::ostream& os, const Info& info)
     return os;
 }
 
-static void* find_prime(void*)
+static void check_numbers(uint64_t num_needed)
 {
     for (;;)
     {
 	uint64_t p = current++;
 
-	if (p > max_value)
+	if (p > num_needed)
 	{
-	    pthread_exit(NULL);
+	    return;
 	}
-	bool prime = is_prime(p);
+	bool prime = prime_table[p];
 	check_for_prime_permutes(prime, p);
 	if (p % 1000 == 0)
 	{
@@ -131,9 +133,50 @@ static void* find_prime(void*)
     }
 }
 
+static void find_primes(uint64_t num_needed)
+{
+    for (;;)
+    {
+	uint64_t p = current++;
+
+	if (p > num_needed)
+	{
+	    return;
+	}
+	bool prime = is_prime(p);
+	prime_table[p] = prime;
+    }
+}
+
+template<typename FN>
+void run_threads(unsigned num_threads, uint64_t num_needed, FN func)
+{
+    auto thread = std::make_unique<std::thread[]>(num_threads);
+    for (unsigned i = 0; i < num_threads; i++)
+    {
+	thread[i] = std::thread(func, num_needed);
+    }
+    for (unsigned i = 0; i < num_threads; i++)
+    {
+	thread[i].join();
+    }
+}
+
+// Calculate a number that is the next power of 10, higher than or equal to max_value
+// We then need one more [if original value is a power of 10, so just add it anyway]
+static uint64_t calc_num_needed()
+{
+    uint64_t n = 1;
+    while (n < max_value)
+    {
+	n *= 10;
+    }
+    return n + 1;
+}
+
 int main(int argc, char** argv)
 {
-    int threads = 1;
+    int num_threads = 1;
 
     for (int i = 1; i < argc; i++)
     {
@@ -141,7 +184,7 @@ int main(int argc, char** argv)
 	if (arg == "-t" && argc > i + 1)
 	{
 	    i++;
-	    threads = std::stol(argv[i], NULL, 0);
+	    num_threads = std::stol(argv[i], NULL, 0);
 	}
 	if (arg == "-e" && argc > i + 1)
 	{
@@ -158,22 +201,15 @@ int main(int argc, char** argv)
 	    verbosity++;
 	}
     }
+    uint64_t needed = calc_num_needed();
+
+    prime_table = std::make_unique<bool[]>(needed);
 
     current = min_value;
+    run_threads(num_threads, needed, find_primes);
 
-    pthread_t* thread_id = new pthread_t[threads];
-    for (int i = 0; i < threads; i++)
-    {
-	int rc = pthread_create(&thread_id[i], NULL, find_prime, NULL);
-	if (rc != 0)
-	{
-	    std::cerr << "Huh? Pthread couldn't be created. rc=" << rc << std::endl;
-	}
-    }
-    for (int i = 0; i < threads; i++)
-    {
-	pthread_join(thread_id[i], NULL);
-    }
+    current = min_value;
+    run_threads(num_threads, max_value, check_numbers);
 
     std::cout << "\n"
               << "Final summary:" << std::endl;
