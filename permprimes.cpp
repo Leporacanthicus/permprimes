@@ -16,9 +16,9 @@ Info                  info[2];
 std::atomic<uint64_t> current;
 std::atomic<uint64_t> totpchk;
 std::atomic<uint64_t> totps;
-static uint64_t       max_value = 7780;
-static uint64_t       min_value = 1;
+#if !NDEBUG
 static int            verbosity;
+#endif
 
 std::unique_ptr<bool[]> prime_table;
 
@@ -67,6 +67,7 @@ void check_for_prime_permutes(bool prime, uint64_t p)
 	}
 	numbers.push_back(v);
     } while (std::next_permutation(digits.begin(), digits.end()));
+#if !NDEBUG
     if (verbosity > 1)
     {
 	std::cout << "Size=" << numbers.size() << std::endl;
@@ -79,21 +80,29 @@ void check_for_prime_permutes(bool prime, uint64_t p)
 	    std::cout << std::endl;
 	}
     }
+#endif
     int        primes = 0;
+
+#if !NDEBUG
     static int most_primes;
+#endif
     for (auto n : numbers)
     {
 	if (prime_table[n])
 	{
 	    primes++;
+#if !NDEBUG
 	    if (verbosity > 2)
 		std::cout << n << " is prime and prime=" << prime << std::endl;
+#endif
 	}
+#if !NDEBUG
 	if (verbosity && primes > most_primes)
 	{
 	    most_primes = primes;
 	    std::cout << "Most primes: " << most_primes << " for " << n << std::endl;
 	}
+#endif
     }
     info[prime].count++;
     info[prime].primes.fetch_add(primes);
@@ -120,12 +129,14 @@ static void check_numbers(uint64_t num_needed)
 	check_for_prime_permutes(prime, p);
 	if (p % 1000 == 0)
 	{
+#if !NDEBUG
 	    if (verbosity)
 	    {
 		std::cout << "Non-primes: " << info[false] << "\n"
 		          << "Primes:     " << info[true] << std::endl;
 	    }
 	    else
+#endif
 	    {
 		std::cout << "." << std::flush;
 	    }
@@ -162,12 +173,12 @@ void run_threads(unsigned num_threads, uint64_t num_needed, FN func)
     }
 }
 
-// Calculate a number that is the next power of 10, higher than or equal to max_value
+// Calculate a number that is the next power of 10, higher than or equal to val.
 // We then need one more [if original value is a power of 10, so just add it anyway]
-static uint64_t calc_num_needed()
+static uint64_t calc_num_needed(uint64_t val)
 {
     uint64_t n = 1;
-    while (n < max_value)
+    while (n < val)
     {
 	n *= 10;
     }
@@ -177,6 +188,8 @@ static uint64_t calc_num_needed()
 int main(int argc, char** argv)
 {
     int num_threads = 1;
+    uint64_t min_value = 1;
+    uint64_t max_value = 7780;
 
     for (int i = 1; i < argc; i++)
     {
@@ -196,12 +209,14 @@ int main(int argc, char** argv)
 	    i++;
 	    min_value = std::stol(argv[i], NULL, 0);
 	}
+#if !NDEBUG
 	if (arg == "-v")
 	{
 	    verbosity++;
 	}
+#endif
     }
-    uint64_t needed = calc_num_needed();
+    uint64_t needed = calc_num_needed(max_value);
 
     prime_table = std::make_unique<bool[]>(needed);
 
